@@ -141,9 +141,6 @@ async def get_debris_catalog(
     name: str = Query(..., description="One of: fengyun1c, cosmos1408, iridium33"),
     limit: int = Query(25, ge=1, le=200),
 ):
-    """
-    Proxy/normalize popular debris catalogs from CelesTrak into TLEResponse shape.
-    """
     try:
         data = await client.fetch_celestrak_catalog(name=name, limit=limit)
         return TLEResponse(**data)
