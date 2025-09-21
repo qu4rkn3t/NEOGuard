@@ -143,10 +143,6 @@ function Earth() {
   )
 }
 
-// function OrbitPath({ traj, scale=SCALE }: { traj: Trajectory, scale?: number }) {
-//   return null
-// }
-
 function FullOrbit({ traj, visible, scale=SCALE }: { traj: Trajectory, visible: boolean, scale?: number }) {
   const points = useMemo(() => traj.states.map(s => new THREE.Vector3(s.r[0]*scale, s.r[1]*scale, s.r[2]*scale)), [traj, scale])
   if (!visible) return null
