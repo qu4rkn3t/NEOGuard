@@ -1,0 +1,7 @@
+torch
+numpy
+sgp4
+tqdm
+httpx
+pytest
+matplotlib

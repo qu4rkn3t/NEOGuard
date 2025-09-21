@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbital Debris PINN</title>
+    <style>
+      :root {
+        --bg: #0b0f1a;
+        --panel: rgba(15, 20, 35, 0.78);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text: #eaeef5;
+        --muted: rgba(255, 255, 255, 0.75);
+        --accent: #7aa2ff;
+        --primary: #4f46e5;
+        --primary-hover: #5b54f1;
+        --chip: rgba(255, 255, 255, 0.1);
+      }
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: radial-gradient(
+          1000px 700px at 20% 10%,
+          #0f1730 0%,
+          var(--bg) 60%
+        );
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      /* Make the canvas sit behind UI, and avoid scrollbars */
+      canvas {
+        display: block;
+      }
+
+      /* Ensure widths include borders/padding (prevents 100%-width inputs from overflowing) */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      .sidebar {
+        position: absolute;
+        left: 16px;
+        top: 16px;
+        width: 320px;
+        padding: 16px;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+        z-index: 20; /* ensure above the canvas */
+        pointer-events: auto; /* accept clicks over 3D canvas */
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        display: flex; /* contain and layout children */
+        flex-direction: column;
+        overflow: hidden; /* clip inner focus rings/shadows to rounded panel */
+      }
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 36px; /* fixed header height */
+      }
+      .sidebar .title {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sidebar.collapsed .title {
+        display: none;
+      } /* hide long title when collapsed */
+
+      .sidebar h2 {
+        margin: 0 0 10px 0;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+      .btn {
+        background: var(--primary);
+        color: white;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        transition: transform 0.05s ease, background 0.15s ease,
+          box-shadow 0.2s ease;
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.25);
+      }
+      .btn:hover {
+        background: var(--primary-hover);
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:disabled {
+        opacity: 0.8;
+        cursor: not-allowed;
+      }
+
+      .input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.15);
+      }
+
+      .slider {
+        width: 100%;
+        accent-color: var(--accent);
+        filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0)); /* no default glow */
+      }
+
+      .metric {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--chip);
+        margin-right: 6px;
+        font-size: 12px;
+      }
+      .pill.time {
+        min-width: 128px;
+        text-align: center;
+      }
+      .pill.tval {
+        min-width: 88px;
+        text-align: center;
+      }
+      .legend {
+        margin-top: 12px;
+      }
+      .legend ul {
+        list-style: none;
+        padding: 0;
+        margin: 6px 0 0 0;
+      }
+      .legend li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        margin-bottom: 6px;
+      }
+      .legend .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08) inset;
+        flex: 0 0 auto;
+      }
+      .legend .tag {
+        margin-left: auto;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(122, 162, 255, 0.18);
+        color: #bcd2ff;
+        border: 1px solid rgba(122, 162, 255, 0.25);
+      }
+
+      a {
+        color: #93c5fd;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      /* Collapsible behavior */
+      .collapse-btn {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        width: 36px;
+        height: 32px;
+        cursor: pointer;
+      }
+      .sidebar.collapsed {
+        width: 56px;
+        padding: 10px;
+        overflow: hidden; /* ensure clipped when collapsed */
+      }
+      /* Search suggestions */
+      .search-list {
+        list-style: none;
+        margin: 6px 0 0 0;
+        padding: 0;
+        border: 1px solid var(--panel-border);
+        background: rgba(15, 20, 35, 0.9);
+        border-radius: 10px;
+        max-height: 200px;
+        overflow: auto;
+      }
+      .search-list li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      .search-list li:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      /* Preset chips */
+      .quick-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 8px 0;
+      }
+      .chip {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        border: 1px solid var(--panel-border);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .chip:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      /* Inline spinner (button area) */
+      .inline-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      /* Full-screen overlay spinner */
+      .loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: rgba(11, 15, 26, 0.45);
+        -webkit-backdrop-filter: blur(2px);
+        backdrop-filter: blur(2px);
+        z-index: 15;
+      }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(255, 255, 255, 0.25);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      .loading-text {
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.2px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Section cards */
+      .section {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .section-title {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 6px;
+      }
+      .control-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+      }
+      .control-label {
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      /* Compact slider variant for inline controls */
+      .slider-compact {
+        width: 160px;
+      }
+
+      /* Modern toggle switch */
+      .switch {
+        position: relative;
+        width: 42px;
+        height: 24px;
+        display: inline-block;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .switch .toggle {
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid var(--panel-border);
+        border-radius: 999px;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      .switch .toggle::before {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 3px;
+        width: 18px;
+        height: 18px;
+        background: #fff;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease;
+      }
+      .switch input:checked + .toggle {
+        background: rgba(122, 162, 255, 0.35);
+        border-color: rgba(122, 162, 255, 0.55);
+      }
+      .switch input:checked + .toggle::before {
+        transform: translateX(18px);
+      }
+      .chip--debris {
+        border: 1px dashed rgba(255, 255, 255, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
